@@ -1,66 +1,83 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, AudioProcessorBase
 import speech_recognition as sr
 from gtts import gTTS
-import tempfile
 import os
 import base64
+import tempfile
+from mutagen.mp3 import MP3  # To calculate audio duration
+import time
 
-# Menu and Cart Definitions
+# Store cart in a temporary storage
+cart = []
+
+# Define the menu items dynamically
 menu_items = {
     "Pizza": 10.99,
     "Burger": 8.49,
     "Pasta": 12.99,
     "Salad": 7.99,
-    "Soda": 2.49,
+    "Soda": 2.49
 }
-cart = []
-
-def process_input(input_text):
-    """Process user input and generate a response."""
-    global cart
-    response = ""
-
-    if "menu" in input_text:
-        response = "Here is our menu: " + ", ".join(menu_items.keys()) + ". What would you like to order?"
-    elif "add" in input_text:
-        for item in menu_items:
-            if item.lower() in input_text:
-                cart.append(item)
-                response = f"{item} has been added to your cart. Your current cart is: {', '.join(cart)}."
-                break
-        else:
-            response = "I couldn't find that item on the menu. Please try again."
-    elif "price of" in input_text:
-        for item in menu_items:
-            if item.lower() in input_text:
-                response = f"The price of {item} is ${menu_items[item]:.2f}."
-                break
-        else:
-            response = "I couldn't find that item on the menu. Please try again."
-    elif "final order" in input_text:
-        if cart:
-            total = sum(menu_items[item] for item in cart)
-            response = f"Your final order is: {', '.join(cart)}. The total is ${total:.2f}. Thank you for your order!"
-            cart = []  # Clear the cart after finalizing
-        else:
-            response = "Your cart is empty. Would you like to order something?"
-    elif "stop assistant" in input_text:
-        response = "Stopping the assistant. Goodbye!"
-    else:
-        response = "I didn't understand that. Could you please repeat?"
-
-    return response
 
 def generate_voice_response(text):
-    """Generate a voice response using gTTS."""
+    """Generate an audio file for the response."""
     tts = gTTS(text)
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
     tts.save(temp_file.name)
     return temp_file.name
 
+def calculate_total(cart):
+    return sum(menu_items[item] for item in cart)
+
+def process_input(input_text):
+    global cart
+    response = ""
+
+    if "price of" in input_text:
+        matched_items = [item for item in menu_items if item.lower() in input_text]
+        if len(matched_items) == 1:
+            item = matched_items[0]
+            response = f"The price of {item} is ${menu_items[item]:.2f}."
+        elif len(matched_items) > 1:
+            response = f"I detected multiple items in your input: {', '.join(matched_items)}. Please ask for the price of one item at a time."
+        else:
+            response = "I couldn't find that item on the menu. Please ask for an item available in the menu."
+    elif any(item.lower() in input_text for item in menu_items):
+        matched_items = [item for item in menu_items if item.lower() in input_text]
+        if len(matched_items) == 1:
+            item = matched_items[0]
+            cart.append(item)
+            response = f"{item} has been added to your cart. Your current cart includes:\n"
+            for cart_item in cart:
+                response += f"- {cart_item}\n"
+            response += "\nWould you like to add anything else?"
+        elif len(matched_items) > 1:
+            response = f"I detected multiple items in your input: {', '.join(matched_items)}. Please mention one item at a time."
+    elif "menu" in input_text:
+        response = "Here is our menu:\n"
+        for item in menu_items.keys():
+            response += f"{item}\n"
+        response += "\nWhat would you like to order?"
+    elif "final order" in input_text or "submit order" in input_text:
+        if cart:
+            total = calculate_total(cart)
+            response = "Your final order includes:\n"
+            for item in cart:
+                response += f"- {item}\n"
+            response += f"\nTotal amount: ${total:.2f}. Thank you for ordering!"
+            cart.clear()
+        else:
+            response = "Your cart is empty. Would you like to order something?"
+    elif "stop assistant" in input_text:
+        response = "Stopping the assistant. Goodbye!"
+        return response, True
+    else:
+        response = "I didn’t quite catch that. Please tell me what you’d like to order or ask about."
+
+    return response, False
+
 def autoplay_audio(audio_file):
-    """Play the response audio automatically."""
+    """Generate HTML to autoplay audio."""
     with open(audio_file, "rb") as f:
         audio_data = f.read()
     audio_base64 = base64.b64encode(audio_data).decode()
@@ -71,49 +88,62 @@ def autoplay_audio(audio_file):
     """
     st.markdown(audio_html, unsafe_allow_html=True)
 
-class AudioProcessor(AudioProcessorBase):
-    """Process audio frames from the microphone."""
-    def __init__(self):
-        self.recognizer = sr.Recognizer()
+def get_audio_duration(audio_file):
+    """Get the duration of the audio file in seconds."""
+    audio = MP3(audio_file)
+    return audio.info.length
 
-    def recv(self, frame):
-        """Process incoming audio frames."""
-        audio_data = frame.to_ndarray()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
-            temp_audio.write(audio_data.tobytes())
-            temp_audio_path = temp_audio.name
+def continuous_listen_and_respond():
+    recognizer = sr.Recognizer()
+    mic = sr.Microphone()
 
+    initial_prompt = "Ready to take your order! Speak now."
+    st.write(initial_prompt)
+
+    # Generate and play the initial prompt
+    initial_audio_file = generate_voice_response(initial_prompt)
+    autoplay_audio(initial_audio_file)
+    time.sleep(get_audio_duration(initial_audio_file))
+
+    with mic as source:
+        recognizer.adjust_for_ambient_noise(source, duration=2)
+
+    while True:
         try:
-            with sr.AudioFile(temp_audio_path) as source:
-                audio = self.recognizer.record(source)
-                input_text = self.recognizer.recognize_google(audio).lower()
+            with mic as source:
+                st.write("Listening...")
+                audio = recognizer.listen(source, timeout=5)
+                st.write("Processing your input...")
+                input_text = recognizer.recognize_google(audio).lower()
                 st.write(f"You said: {input_text}")
 
-                # Process input and generate response
-                response = process_input(input_text)
-                st.write(f"Assistant: {response}")
+                # Process input and respond
+                response, stop = process_input(input_text)
+                st.write(response)
 
                 # Generate and autoplay audio response
-                audio_response = generate_voice_response(response)
-                autoplay_audio(audio_response)
+                audio_file = generate_voice_response(response)
+                autoplay_audio(audio_file)
 
-                # Stop assistant on "stop assistant" command
-                if "stop assistant" in input_text:
-                    st.write("Stopping the assistant. Goodbye!")
-                    raise SystemExit  # Stop the process
+                # Wait for the audio to finish playing
+                duration = get_audio_duration(audio_file)
+                time.sleep(duration)
+
+                # If stop command is detected, exit the loop
+                if stop:
+                    break
+
+        except sr.WaitTimeoutError:
+            st.write("Timeout! No input detected. Restarting...")
         except sr.UnknownValueError:
-            st.write("Sorry, I couldn't understand your speech. Please try again.")
-            autoplay_audio(generate_voice_response("Sorry, I couldn't understand your speech. Please try again."))
-        except sr.RequestError as e:
-            st.write(f"Could not request results from the service; {e}")
+            st.write("Could not understand audio. Please try again.")
+            error_response = "I couldn't understand what you said. Can you repeat?"
+            error_audio = generate_voice_response(error_response)
+            autoplay_audio(error_audio)
+            time.sleep(get_audio_duration(error_audio))
 
-# Streamlit App UI
-st.title("Hands-Free Voice Assistant")
-st.write("The assistant is ready. Speak your commands into the microphone.")
+# Streamlit app layout
+st.title("Continuous Hands-Free Voice Assistant")
 
-webrtc_streamer(
-    key="hands-free-voice-assistant",
-    mode=WebRtcMode.SENDONLY,
-    audio_processor_factory=AudioProcessor,
-    media_stream_constraints={"audio": True, "video": False},
-)
+if st.button("Start Assistant"):
+    continuous_listen_and_respond()

@@ -6,6 +6,22 @@ import base64
 import tempfile
 from mutagen.mp3 import MP3  # To calculate audio duration
 import time
+import pyaudio
+
+audio = pyaudio.PyAudio()
+
+# List all available audio devices
+print("Available devices:")
+for i in range(audio.get_device_count()):
+    device_info = audio.get_device_info_by_index(i)
+    print(f"Device {i}: {device_info['name']}")
+
+# Check the default input device
+try:
+    default_device = audio.get_default_input_device_info()
+    print(f"Default input device: {default_device}")
+except OSError as e:
+    print(f"Error getting default input device: {e}")
 
 # Store cart in a temporary storage
 cart = []

@@ -2,4 +2,3 @@ streamlit
 speechrecognition
 gtts
 mutagen
-gradio

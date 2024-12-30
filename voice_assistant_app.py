@@ -5,7 +5,6 @@ import os
 import base64
 import tempfile
 from mutagen.mp3 import MP3  # To calculate audio duration
-import time
 
 # Store cart in a temporary storage
 cart = []
@@ -68,13 +67,10 @@ def process_input(input_text):
             cart.clear()
         else:
             response = "Your cart is empty. Would you like to order something?"
-    elif "stop assistant" in input_text:
-        response = "Stopping the assistant. Goodbye!"
-        return response, True
     else:
         response = "I didn’t quite catch that. Please tell me what you’d like to order or ask about."
 
-    return response, False
+    return response
 
 def autoplay_audio(audio_file):
     """Generate HTML to autoplay audio."""
@@ -88,62 +84,35 @@ def autoplay_audio(audio_file):
     """
     st.markdown(audio_html, unsafe_allow_html=True)
 
-def get_audio_duration(audio_file):
-    """Get the duration of the audio file in seconds."""
-    audio = MP3(audio_file)
-    return audio.info.length
-
-def continuous_listen_and_respond():
-    recognizer = sr.Recognizer()
-    mic = sr.Microphone()
-
-    initial_prompt = "Ready to take your order! Speak now."
-    st.write(initial_prompt)
-
-    # Generate and play the initial prompt
-    initial_audio_file = generate_voice_response(initial_prompt)
-    autoplay_audio(initial_audio_file)
-    time.sleep(get_audio_duration(initial_audio_file))
-
-    with mic as source:
-        recognizer.adjust_for_ambient_noise(source, duration=2)
-
-    while True:
-        try:
-            with mic as source:
-                st.write("Listening...")
-                audio = recognizer.listen(source, timeout=5)
-                st.write("Processing your input...")
-                input_text = recognizer.recognize_google(audio).lower()
-                st.write(f"You said: {input_text}")
-
-                # Process input and respond
-                response, stop = process_input(input_text)
-                st.write(response)
-
-                # Generate and autoplay audio response
-                audio_file = generate_voice_response(response)
-                autoplay_audio(audio_file)
-
-                # Wait for the audio to finish playing
-                duration = get_audio_duration(audio_file)
-                time.sleep(duration)
-
-                # If stop command is detected, exit the loop
-                if stop:
-                    break
-
-        except sr.WaitTimeoutError:
-            st.write("Timeout! No input detected. Restarting...")
-        except sr.UnknownValueError:
-            st.write("Could not understand audio. Please try again.")
-            error_response = "I couldn't understand what you said. Can you repeat?"
-            error_audio = generate_voice_response(error_response)
-            autoplay_audio(error_audio)
-            time.sleep(get_audio_duration(error_audio))
-
 # Streamlit app layout
-st.title("Continuous Hands-Free Voice Assistant")
+st.title("Hands-Free Voice Assistant")
 
-if st.button("Start Assistant"):
-    continuous_listen_and_respond()
+st.write("Upload an audio file or record your voice.")
+
+# Upload audio file
+uploaded_audio = st.file_uploader("Upload your audio file (WAV format only)", type=["wav"])
+
+if uploaded_audio is not None:
+    st.audio(uploaded_audio, format="audio/wav", start_time=0)
+
+    # Process the uploaded audio
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(uploaded_audio) as source:
+        audio = recognizer.record(source)
+
+    try:
+        input_text = recognizer.recognize_google(audio).lower()
+        st.write(f"You said: {input_text}")
+
+        # Process the input and respond
+        response = process_input(input_text)
+        st.write(response)
+
+        # Generate and autoplay the response
+        audio_file = generate_voice_response(response)
+        autoplay_audio(audio_file)
+
+    except sr.UnknownValueError:
+        st.write("Sorry, I could not understand the audio.")
+    except sr.RequestError as e:
+        st.write(f"Could not request results from Google Speech Recognition service; {e}")

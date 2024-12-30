@@ -2,3 +2,5 @@ streamlit
 speechrecognition
 gtts
 mutagen
+pyaudio
+

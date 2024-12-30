@@ -5,6 +5,7 @@ import os
 import base64
 import tempfile
 from mutagen.mp3 import MP3
+import time
 
 # Store cart in a temporary storage
 cart = []
@@ -90,17 +91,21 @@ def autoplay_audio(audio_file):
 # Streamlit app layout
 st.title("Hands-Free Voice Assistant")
 
-st.write("Click on the button to record your voice.")
+st.write("Click on the button to start recording. The assistant will respond automatically.")
 
-# Upload or record audio
-audio_file = st.file_uploader("Upload or record audio (WAV format only)", type=["wav"])
-
-if audio_file is not None:
-    st.audio(audio_file, format="audio/wav", start_time=0)
-
-    # Process the uploaded audio
+if st.button("Start Assistant"):
     recognizer = sr.Recognizer()
-    with sr.AudioFile(audio_file) as source:
+    st.write("Recording audio. Please speak now...")
+
+    # Simulate recording with Streamlit Audio
+    audio_data = st.audio("Record audio using a supported browser.")
+
+    # Process the audio
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+        temp_audio.write(audio_data.getvalue())
+        temp_audio_path = temp_audio.name
+
+    with sr.AudioFile(temp_audio_path) as source:
         audio = recognizer.record(source)
 
     try:
@@ -114,6 +119,10 @@ if audio_file is not None:
         # Generate and autoplay the response
         audio_response = generate_voice_response(response)
         autoplay_audio(audio_response)
+
+        # Stop the assistant on command
+        if stop:
+            st.write("Assistant stopped.")
 
     except sr.UnknownValueError:
         st.write("Sorry, I could not understand the audio.")

@@ -4,7 +4,8 @@ from gtts import gTTS
 import os
 import base64
 import tempfile
-from mutagen.mp3 import MP3  # To calculate audio duration
+from mutagen.mp3 import MP3
+import gradio as gr
 
 # Store cart in a temporary storage
 cart = []
@@ -67,10 +68,13 @@ def process_input(input_text):
             cart.clear()
         else:
             response = "Your cart is empty. Would you like to order something?"
+    elif "stop assistant" in input_text:
+        response = "Stopping the assistant. Goodbye!"
+        return response, True
     else:
         response = "I didn’t quite catch that. Please tell me what you’d like to order or ask about."
 
-    return response
+    return response, False
 
 def autoplay_audio(audio_file):
     """Generate HTML to autoplay audio."""
@@ -84,35 +88,30 @@ def autoplay_audio(audio_file):
     """
     st.markdown(audio_html, unsafe_allow_html=True)
 
-# Streamlit app layout
-st.title("Hands-Free Voice Assistant")
-
-st.write("Upload an audio file or record your voice.")
-
-# Upload audio file
-uploaded_audio = st.file_uploader("Upload your audio file (WAV format only)", type=["wav"])
-
-if uploaded_audio is not None:
-    st.audio(uploaded_audio, format="audio/wav", start_time=0)
-
-    # Process the uploaded audio
+def handle_audio(audio_path):
+    """Process audio input from Gradio."""
     recognizer = sr.Recognizer()
-    with sr.AudioFile(uploaded_audio) as source:
+    with sr.AudioFile(audio_path) as source:
         audio = recognizer.record(source)
 
     try:
         input_text = recognizer.recognize_google(audio).lower()
-        st.write(f"You said: {input_text}")
-
-        # Process the input and respond
-        response = process_input(input_text)
-        st.write(response)
-
-        # Generate and autoplay the response
-        audio_file = generate_voice_response(response)
-        autoplay_audio(audio_file)
-
+        response, stop = process_input(input_text)
+        return response, stop
     except sr.UnknownValueError:
-        st.write("Sorry, I could not understand the audio.")
-    except sr.RequestError as e:
-        st.write(f"Could not request results from Google Speech Recognition service; {e}")
+        return "I couldn't understand what you said. Can you repeat?", False
+
+# Streamlit app layout
+st.title("Hands-Free Voice Assistant")
+
+st.write("Record your voice and interact with the assistant.")
+
+# Gradio widget for recording audio
+record = gr.Interface(
+    fn=handle_audio,
+    inputs="microphone",
+    outputs="text",
+    live=True
+)
+
+st_gradio = gr.mount_gradio_app(st, record, "/")

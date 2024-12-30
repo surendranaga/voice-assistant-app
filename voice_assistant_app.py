@@ -1,13 +1,12 @@
 import streamlit as st
+from streamlit_webrtc import webrtc_streamer, AudioProcessorBase, WebRtcMode
 import speech_recognition as sr
 from gtts import gTTS
-import os
-import base64
 import tempfile
+import base64
+import os
 from mutagen.mp3 import MP3
-
-# Store cart in a temporary storage
-cart = []
+import time
 
 # Define the menu items dynamically
 menu_items = {
@@ -17,6 +16,7 @@ menu_items = {
     "Salad": 7.99,
     "Soda": 2.49
 }
+cart = []
 
 def generate_voice_response(text):
     """Generate an audio file for the response."""
@@ -62,7 +62,7 @@ def process_input(input_text):
             total = calculate_total(cart)
             response = "Your final order includes:\n"
             for item in cart:
-                response += f"- {item}\n"
+                response += f"- {cart_item}\n"
             response += f"\nTotal amount: ${total:.2f}. Thank you for ordering!"
             cart.clear()
         else:
@@ -87,39 +87,50 @@ def autoplay_audio(audio_file):
     """
     st.markdown(audio_html, unsafe_allow_html=True)
 
+class AudioProcessor(AudioProcessorBase):
+    def __init__(self):
+        self.recognizer = sr.Recognizer()
+
+    def recv(self, frame):
+        audio_data = frame.to_ndarray()
+        # Save audio to a temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+            temp_audio.write(audio_data)
+            temp_audio_path = temp_audio.name
+
+        # Process audio with speech recognition
+        with sr.AudioFile(temp_audio_path) as source:
+            audio = self.recognizer.record(source)
+
+        try:
+            input_text = self.recognizer.recognize_google(audio).lower()
+            st.write(f"You said: {input_text}")
+
+            # Process the input and respond
+            response, stop = process_input(input_text)
+            st.write(response)
+
+            # Generate and autoplay the response
+            audio_response = generate_voice_response(response)
+            autoplay_audio(audio_response)
+
+            # Stop assistant if the command is given
+            if stop:
+                st.write("Assistant stopped.")
+
+        except sr.UnknownValueError:
+            st.write("Sorry, I could not understand the audio.")
+        except sr.RequestError as e:
+            st.write(f"Could not request results from Google Speech Recognition service; {e}")
+
 # Streamlit app layout
 st.title("Hands-Free Voice Assistant")
 
-st.write("Click the button below to record your voice.")
+st.write("Speak into your microphone. The assistant will listen and respond.")
 
-# Upload audio file
-uploaded_audio = st.file_uploader("Upload or record audio in WAV format", type=["wav"])
-
-if uploaded_audio is not None:
-    st.audio(uploaded_audio, format="audio/wav", start_time=0)
-
-    # Process the uploaded audio
-    recognizer = sr.Recognizer()
-    with sr.AudioFile(uploaded_audio) as source:
-        audio = recognizer.record(source)
-
-    try:
-        input_text = recognizer.recognize_google(audio).lower()
-        st.write(f"You said: {input_text}")
-
-        # Process the input and respond
-        response, stop = process_input(input_text)
-        st.write(response)
-
-        # Generate and autoplay the response
-        audio_response = generate_voice_response(response)
-        autoplay_audio(audio_response)
-
-        # Stop the assistant if the stop command is given
-        if stop:
-            st.write("Assistant stopped.")
-
-    except sr.UnknownValueError:
-        st.write("Sorry, I could not understand the audio.")
-    except sr.RequestError as e:
-        st.write(f"Could not request results from Google Speech Recognition service; {e}")
+webrtc_streamer(
+    key="hands-free-voice-assistant",
+    mode=WebRtcMode.SENDONLY,
+    audio_processor_factory=AudioProcessor,
+    media_stream_constraints={"audio": True, "video": False},
+)

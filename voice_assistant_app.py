@@ -6,22 +6,6 @@ import base64
 import tempfile
 from mutagen.mp3 import MP3  # To calculate audio duration
 import time
-import pyaudio
-
-audio = pyaudio.PyAudio()
-
-# List all available audio devices
-print("Available devices:")
-for i in range(audio.get_device_count()):
-    device_info = audio.get_device_info_by_index(i)
-    print(f"Device {i}: {device_info['name']}")
-
-# Check the default input device
-try:
-    default_device = audio.get_default_input_device_info()
-    print(f"Default input device: {default_device}")
-except OSError as e:
-    print(f"Error getting default input device: {e}")
 
 # Store cart in a temporary storage
 cart = []
@@ -111,7 +95,16 @@ def get_audio_duration(audio_file):
 
 def continuous_listen_and_respond():
     recognizer = sr.Recognizer()
-    mic = sr.Microphone()
+
+    # Try to initialize the microphone
+    try:
+        mic = sr.Microphone()
+    except OSError as e:
+        st.error(f"No microphone found: {e}")
+        error_response = "I could not find a microphone. Please ensure a microphone is connected and try again."
+        error_audio = generate_voice_response(error_response)
+        autoplay_audio(error_audio)
+        return
 
     initial_prompt = "Ready to take your order! Speak now."
     st.write(initial_prompt)
@@ -121,8 +114,15 @@ def continuous_listen_and_respond():
     autoplay_audio(initial_audio_file)
     time.sleep(get_audio_duration(initial_audio_file))
 
-    with mic as source:
-        recognizer.adjust_for_ambient_noise(source, duration=2)
+    try:
+        with mic as source:
+            recognizer.adjust_for_ambient_noise(source, duration=2)
+    except OSError as e:
+        st.error(f"Microphone error: {e}")
+        error_response = "There was an error accessing the microphone. Please check your audio settings."
+        error_audio = generate_voice_response(error_response)
+        autoplay_audio(error_audio)
+        return
 
     while True:
         try:
@@ -163,3 +163,18 @@ st.title("Continuous Hands-Free Voice Assistant")
 
 if st.button("Start Assistant"):
     continuous_listen_and_respond()
+
+if st.button("Check Audio Devices"):
+    import pyaudio
+    audio = pyaudio.PyAudio()
+
+    device_list = []
+    for i in range(audio.get_device_count()):
+        device_info = audio.get_device_info_by_index(i)
+        device_list.append(f"Device {i}: {device_info['name']}")
+
+    if device_list:
+        st.write("Available Audio Devices:")
+        st.write("\n".join(device_list))
+    else:
+        st.error("No audio devices found!")
